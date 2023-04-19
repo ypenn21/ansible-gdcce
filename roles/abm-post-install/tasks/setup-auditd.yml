@@ -1,0 +1,218 @@
+- name: Install auditd
+  become: yes
+  apt:
+    pkg:
+    - auditd
+    - audispd-plugins
+    state: present
+  tags:
+  - observability-audit-install
+  - observability-setup
+  when:
+  - target_os == "ubuntu"
+
+- name: Install auditd
+  become: yes
+  yum:
+    pkg:
+    - audit
+    - audispd-plugins
+    state: present
+  tags:
+  - observability-audit-install
+  - observability-setup
+  when:
+  - target_os == "redhat"
+
+- name: Copy base auditd rules
+  become: yes
+  template:
+    src: audit.rules.tf
+    dest: "/etc/audit/rules.d/audit.rules"
+    owner: root
+    group: root
+    mode: '0640'
+  tags:
+  - observability-audit-install
+  - observability-setup
+  - auditd-config
+  when:
+  - target_os == "ubuntu"
+
+- name: Reload Auditd
+  command: /usr/sbin/service auditd reload
+  args:
+    warn: false
+  when:
+  - target_os == "redhat"
+
+- name: Copy times auditd rules
+  become: yes
+  template:
+    src: audit_times.rules.tf
+    dest: "/etc/audit/rules.d/times.rules"
+    owner: root
+    group: root
+    mode: '0640'
+  tags:
+  - observability-audit-install
+  - observability-setup
+  - auditd-config
+
+- name: Copy system_locale auditd rules
+  become: yes
+  template:
+    src: audit_system_locale.rules.tf
+    dest: "/etc/audit/rules.d/system_locale.rules"
+    owner: root
+    group: root
+    mode: '0640'
+  tags:
+  - observability-audit-install
+  - observability-setup
+  - auditd-config
+
+- name: Copy identity auditd rules
+  become: yes
+  template:
+    src: audit_identity.rules.tf
+    dest: "/etc/audit/rules.d/identity.rules"
+    owner: root
+    group: root
+    mode: '0640'
+  tags:
+  - observability-audit-install
+  - observability-setup
+  - auditd-config
+
+- name: Copy logins auditd rules
+  become: yes
+  template:
+    src: audit_logins.rules.tf
+    dest: "/etc/audit/rules.d/logins.rules"
+    owner: root
+    group: root
+    mode: '0640'
+  tags:
+  - observability-audit-install
+  - observability-setup
+  - auditd-config
+
+- name: Copy permissions auditd rules
+  become: yes
+  template:
+    src: audit_permissions.rules.tf
+    dest: "/etc/audit/rules.d/permissions.rules"
+    owner: root
+    group: root
+    mode: '0640'
+  tags:
+  - observability-audit-install
+  - observability-setup
+  - auditd-config
+
+- name: Copy file_change auditd rules
+  become: yes
+  template:
+    src: audit_file_change.rules.tf
+    dest: "/etc/audit/rules.d/file_change.rules"
+    owner: root
+    group: root
+    mode: '0640'
+  tags:
+  - observability-audit-install
+  - observability-setup
+  - auditd-config
+
+- name: Copy scope auditd rules
+  become: yes
+  template:
+    src: audit_scope.rules.tf
+    dest: "/etc/audit/rules.d/scope.rules"
+    owner: root
+    group: root
+    mode: '0640'
+  tags:
+  - observability-audit-install
+  - observability-setup
+  - auditd-config
+
+- name: Copy sudo auditd rules
+  become: yes
+  template:
+    src: audit_sudo.rules.tf
+    dest: "/etc/audit/rules.d/sudo.rules"
+    owner: root
+    group: root
+    mode: '0640'
+  tags:
+  - observability-audit-install
+  - observability-setup
+  - auditd-config
+
+- name: Copy modules auditd rules
+  become: yes
+  template:
+    src: audit_modules.rules.tf
+    dest: "/etc/audit/rules.d/modules.rules"
+    owner: root
+    group: root
+    mode: '0640'
+  tags:
+  - observability-audit-install
+  - observability-setup
+  - auditd-config
+
+- name: Restart auditd service
+  become: yes
+  ansible.builtin.service:
+    name: auditd
+    enabled: yes
+    state: restarted
+  when:
+  - enable_auditd|bool == True
+  - target_os == "ubuntu"
+  tags:
+  - observability-audit-install
+  - observability-audit-service-reset
+  - observability-setup
+
+- name: Restart auditd service
+  become: yes
+  command: /usr/sbin/service auditd restart
+  args:
+    warn: false
+  when:
+  - enable_auditd|bool == True
+  - target_os == "redhat"
+  tags:
+  - observability-audit-install
+  - observability-audit-service-reset
+  - observability-setup
+
+- name: Stop the auditd service
+  become: yes
+  ansible.builtin.service:
+    name: auditd
+    enabled: yes
+    state: stopped
+  when:
+  - enable_auditd|bool == True
+  - target_os == "ubuntu"
+  tags:
+  - observability-audit-install
+  - observability-audit-service-reset
+  - observability-setup
+
+- name: Stop the auditd service
+  become: yes
+  command: /usr/sbin/service auditd stop
+  args:
+    warn: false
+  when:
+  - enable_auditd|bool == False
+  - target_os == "redhat"
+  tags:
+  - observability-audit-install
+  - observability-audit-service-reset
+  - observability-setup

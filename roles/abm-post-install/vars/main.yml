@@ -1,0 +1,8 @@
+# Kube PS1
+kube_ps1_version: "0.7.0"
+
+# NOTE Duplicate of google_tools vars
+abm_install_user: "el-gato"
+
+# Home directory for external secrets download and operations (duplidated from abm-software role)
+external_secrets_files: "{{ abm_install_folder }}/external-secrets"

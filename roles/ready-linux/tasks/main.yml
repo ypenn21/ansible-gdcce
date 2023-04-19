@@ -1,0 +1,327 @@
+---
+# tasks file for ready-linux
+
+### Verify OS is approved (Ubuntu only at this point). Saves the pre-checks later
+- name: Get kernel version
+  command: 'uname -r'
+  register: uname_result
+
+- name: Save kernel verson to a variable
+  set_fact:
+    uname_r: '{{ uname_result.stdout }}'
+
+- name: Set HTTP apt proxy (if needed)
+  lineinfile:
+    path: /etc/apt/apt.conf.d/proxy.conf
+    line: 'Acquire::http::Proxy "{{ proxy_http_full_addr }}";'
+    create: true
+  when:
+  - proxy_has_http_proxy is true
+
+- name: Set HTTPS apt proxy (if needed)
+  lineinfile:
+    path: /etc/apt/apt.conf.d/proxy.conf
+    line: 'Acquire::https::Proxy "{{ proxy_https_full_addr }}";'
+    create: true
+  when:
+  - proxy_has_https_proxy is true
+
+# TODO Audit this list of dependencies and split into "development" and "production" (not everything is needed for production)
+- name: Install dependencies used in provisioning (Ubuntu)
+  apt:
+    pkg:
+    - apt-transport-https
+    - ca-certificates
+    - net-tools
+    - nmap
+    - curl
+    - zip
+    - wget
+    - gnupg-agent
+    - software-properties-common
+    - network-manager
+    - vlan
+    - logrotate
+    - unattended-upgrades
+    - apt-listchanges
+    - nfs-common
+    # This is needed for TODO: Move this to Robin install only
+    # - linux-modules-extra-{{ uname_r }}
+    state: latest
+    update_cache: yes
+    autoclean: yes
+  tags:
+    - update-dependencies
+  when:
+    - target_os == "ubuntu"
+
+- name: Install dependencies used in provisioning (RedHat)
+  yum:
+    pkg:
+    - ca-certificates
+    - net-tools
+    - nmap
+    - curl
+    - zip
+    - wget
+    - gnupg
+    - logrotate
+    - python3
+    - python3-pip
+    # This is needed for TODO: Move this to Robin install only
+    # - linux-modules-extra-{{ uname_r }}
+    state: latest
+    update_cache: yes
+    #autoclean: yes
+  tags:
+    - update-dependencies
+  when:
+    - target_os == "redhat"
+
+- name: Remove un-necessary dependencies
+  apt:
+    pkg:
+    - popularity-contest
+    state: absent
+  tags:
+    - update-dependencies
+  when:
+    - target_os == "ubuntu"
+
+#### Stop and disable apparmor
+- name: Stop apparmor
+  systemd:
+    state: stopped
+    name: apparmor
+  tags:
+  - remove
+  when:
+  - target_os == "ubuntu"
+
+- name: Disable apparmor
+  systemd:
+    name: apparmor
+    enabled: no
+  tags:
+  - remove
+  when:
+  - target_os == "ubuntu"
+
+#### Disable ufw
+- name: Disable wfw
+  command: ufw disable
+  register: ufw
+  tags:
+  - remove
+  when:
+  - target_os == "ubuntu"
+
+- name: Show output for firewall stopping
+  debug:
+    msg: "{{ ufw.stdout }}"
+  tags:
+  - remove
+  when:
+  - target_os == "ubuntu"
+
+## Create the user that builds and communicates across cluster machines
+- name: Create a user for ABM Control
+  ansible.builtin.user:
+    name: "{{ abm_install_user }}"
+    shell: /bin/bash
+    groups: "sudo"
+    append: yes
+    generate_ssh_key: yes
+    ssh_key_bits: 2048
+    ssh_key_file: .ssh/{{ ssh_key_name }}
+  tags:
+  - abm-install
+  - abm-user
+  when:
+  - target_os == "ubuntu"
+
+- name: Create a user for ABM Control
+  ansible.builtin.user:
+    name: "{{ abm_install_user }}"
+    shell: /bin/bash
+    groups: "wheel"
+    append: yes
+    generate_ssh_key: yes
+    ssh_key_bits: 2048
+    ssh_key_file: .ssh/{{ ssh_key_name }}
+  tags:
+  - abm-install
+  - abm-user
+  when:
+  - target_os == "redhat"
+
+## Setup password less SSH into same box
+- name: "Place ssh config with no-host-check turned on"
+  template:
+    src: ssh-config.j2
+    dest: "{{ ssh_user_home }}/config"
+    group: "{{ abm_install_user }}"
+    owner: "{{ abm_install_user }}"
+  tags:
+  - abm-install
+  - abm-user
+
+### Add the new user to the no-password sudoers list
+- name: Add user to sudoers list
+  template:
+    src: sudoers.j2
+    dest: "/etc/sudoers.d/{{ abm_install_user }}"
+  tags:
+  - abm-install
+  - abm-user
+
+## TODO: This does not allow for multiple cnucs to be setup at one time
+## TODO: This also does not skip non cnucs
+- name: "SSH Key access to other nodes"
+  import_tasks: setup-ssh-pub-key-access.yml
+  tags:
+  - abm-install
+  - abm-ssh
+
+# Copy over the vxlan status verify script
+- name: Copy VXLAN status script
+  template:
+    src: vxlan-status-check.sh.j2
+    dest: "/var/vxlan-status-check.sh"
+    mode: '0755' # read/write/execute owner, everyone else read/execute
+  when:
+    - is_cloud_resource is defined
+    - is_cloud_resource == True
+  tags:
+  - network-vxlan
+  - ubuntu-setup
+
+- name: get version
+  shell: "docker -v | cut -d ' ' -f 3 | cut -d ',' -f 1"
+  register: docker_version
+  tags:
+  - docker
+
+- name: "Setup docker on host machine"
+  import_tasks: setup-docker-apt.yml
+  when:
+  - ( docker_version.stdout == "" or docker_version.stdout is version('20.9.0', '<') )
+  - target_os == "ubuntu"
+  tags:
+  - docker
+
+- name: "Setup docker on host machine"
+  import_tasks: setup-docker-yum.yml
+  when:
+  - ( docker_version.stdout == "" or docker_version.stdout is version('20.9.0', '<') )
+  - target_os == "redhat"
+  tags:
+  - docker
+
+- name: "Setup VLAN Interfaces on Physical Hosts"
+  import_tasks: setup-vlan-interfaces.yml
+  when:
+  - (setup_vlan == true) and (is_cloud_resource is undefined or is_cloud_resource == false)
+  tags:
+  - vlan-setup
+
+- name: ensure logrotate is in /etc/cron.hourly
+  file:
+    src: /etc/cron.daily/logrotate
+    dest: /etc/cron.hourly/logrotate
+    state: link
+    force: yes
+    mode: 0755 # the file needs to be excutable
+  tags:
+  - logrotate-setup
+  - ubuntu-setup
+
+- name: ensure logrotate is in /etc/cron.hourly
+  file:
+    src: /etc/cron.daily/logrotate
+    dest: /etc/cron.hourly/logrotate
+    state: link
+    force: yes
+    mode: 0755 # the file needs to be excutable
+  tags:
+  - logrotate-setup
+  - ubuntu-setup
+
+- name: check hourly logrotate status
+  shell: |
+    IS_HOURLY=$(run-parts --test /etc/cron.hourly)
+    TEST_FOR="/etc/cron.hourly/logrotate"
+    if [[ "${IS_HOURLY}" != *"${TEST_FOR}"* ]]; then
+      exit 1 # Fail if hourly is not setup
+    fi
+  register: hourly_check
+  failed_when: hourly_check.rc != 0
+  changed_when: False
+  tags:
+  - logrotate-setup
+  - ubuntu-setup
+
+#### Install kernel module for Robin
+- name: Generate modules.dep
+  shell: |
+    depmod -a
+  tags:
+  - robin
+
+- name: Load tcm_loop kernel module
+  community.general.modprobe:
+    name: tcm_loop
+    state: present
+  tags:
+  - robin
+
+- name: Check if tcm_loop kernel module is loaded
+  shell: "lsmod | grep tcm"
+  register: tcm_exists
+  failed_when: tcm_exists.rc != 0
+
+### Multipath Service (can cause bugs in SDS, very uncommon)\
+- name: Disable Multipath Daemon Service
+  ansible.builtin.service:
+    name: multipathd
+    state: "{{ (enable_multipath_service == true) | ternary('running','stopped')  }}"
+    enabled: "{{ enable_multipath_service }}"
+  when:
+  - (services['multipathd.service'] is defined)
+  - (services['multipathd.service'].status == 'enabled') or (services['multipathd.service'].state == 'running')
+  tags:
+  - multipath-config
+
+- name: Disable Multipath Tools Service
+  ansible.builtin.service:
+    name: multipath-tools
+    state: "{{ (enable_multipath_service == true) | ternary('running','stopped')  }}"
+    enabled: "{{ enable_multipath_service }}"
+  when:
+  - (services['multipath-tools.service'] is defined)
+  - (services['multipath-tools.service'].status == 'enabled') or (services['multipath-tools.service'].state == 'running')
+  tags:
+  - multipath-config
+
+- name: Disable Multipath Tools Boot Service
+  ansible.builtin.service:
+    name: multipath-tools-boot
+    state: "{{ (enable_multipath_service == true) | ternary('running','stopped')  }}"
+    enabled: "{{ enable_multipath_service }}"
+  when:
+  - (services['multipath-tools-boot.service'] is defined)
+  - (services['multipath-tools-boot.service'].status == 'enabled') or (services['multipath-tools-boot.service'].state == 'running')
+  tags:
+  - multipath-config
+
+- name: "Enable recover lost locks for NFS"
+  lineinfile:
+    path: "/etc/modprobe.d/nfs4-locks.conf"
+    line: "options nfs recover_lost_locks=1"
+    create: true
+  when:
+  - storage_provider == "robin"
+  tags:
+  - nfs-storage-robin
+  - robin-setup
+  - modprobe

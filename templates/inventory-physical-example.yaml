@@ -1,0 +1,16 @@
+####
+#
+#   Refer to the README.md for instructions on how to use this template file for your inventory.
+#
+####
+
+## NOTE: Host names are DNS resolved to your physical host. Some routers assign .lan or other suffix. Comment out, add or adjust this file to represent your physical hardware
+
+workers:
+  hosts:
+    edge-1:
+    edge-2:
+    edge-3:
+    # edge-4:
+    # edge-5:
+    # edge-6:

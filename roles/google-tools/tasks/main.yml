@@ -1,0 +1,388 @@
+---
+# Credentials
+
+### The remote keys folder must be readable for all users
+  - name: Add /usr/local/bin to path for RHEL
+    lineinfile:
+      path: /etc/environment
+      line: 'PATH=$PATH:/bin:/usr/sbin:/usr/local/bin'
+    when:
+    - target_os == "redhat"
+    tags:
+    - abm-install
+    - abm-config
+    - build-config
+
+  - name: Create the temp keys directory
+    file:
+      path: '{{ remote_keys_folder }}'
+      state: directory
+      mode: '0755'
+      group: 'root'
+      owner: 'root'
+    tags:
+    - initial-install
+    - tool-authentication
+
+  - name: Get the provisiong GSA key to initialize gcloud with
+    copy:
+      src: '{{ provisioning_gsa_key }}'
+      dest: '{{ remote_keys_folder }}/provisioning-gsa.json'
+      mode: '0444' # read only
+      group: 'root'
+      owner: 'root'
+    tags:
+    - initial-install
+    - tool-authentication
+
+  - name: Copy node GSA
+    copy:
+      src: '{{ node_gsa_key }}'
+      dest: '{{ remote_keys_folder }}/node-gsa.json'
+      mode: '0444' # read only
+      group: 'root'
+      owner: 'root'
+    tags:
+    - initial-install
+    - tool-authentication
+
+##### gcloud
+
+  - name: Create the tools temp directory
+    file:
+      path: '{{ tools_base_path }}'
+      state: directory
+      mode: '0755'
+    tags:
+    - initial-install
+
+  - name: Download and unarchive gcloud
+    ansible.builtin.unarchive:
+      src: 'https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-{{ gcloud_version }}-linux-x86_64.tar.gz'
+      dest: '{{ tools_base_path }}'
+      creates: '{{ tools_base_path }}/google-cloud-sdk'
+      remote_src: yes
+    tags:
+    - initial-install
+    - tool-install
+
+  - name: Download and unarchive kubectx
+    ansible.builtin.unarchive:
+      src: 'https://github.com/ahmetb/kubectx/releases/download/v{{ kubectx_version }}/kubectx_v{{ kubectx_version }}_linux_x86_64.tar.gz'
+      dest: '/usr/local/bin'
+      include: 'kubectx'
+      mode: "0755"
+      creates: '/usr/local/bin/kubectx'
+      remote_src: yes
+    when: optional_tools is true
+    tags:
+    - initial-install
+    - tool-install
+
+  - name: Download and unarchive kubens
+    ansible.builtin.unarchive:
+      src: 'https://github.com/ahmetb/kubectx/releases/download/v{{ kubectx_version }}/kubens_v{{ kubectx_version }}_linux_x86_64.tar.gz'
+      dest: '/usr/local/bin'
+      include: 'kubens'
+      mode: "0755"
+      creates: '/usr/local/bin/kubens'
+      remote_src: yes
+    when: optional_tools is true
+    tags:
+    - initial-install
+    - tool-install
+
+### All other tools
+  - name: Install kubectl, nomos, kustomize and gsutil
+    command:
+      cmd: gcloud components install kubectl kustomize anthos-auth kpt nomos gsutil kubectl-oidc alpha beta -q
+      creates: "{{ tools_base_path }}/google-cloud-sdk/bin/kubectl"
+    environment: # NOTE: This environment is needed until the components are all installed and added to /usr/local/bin
+      PATH: "{{ tools_base_path }}/google-cloud-sdk/bin:{{ ansible_env.PATH }}"
+    when: optional_tools is true
+    tags:
+    - initial-install
+    - tool-install
+
+  - name: Remove previous /usr/bin links and non-gcloud based binaries
+    ansible.builtin.file:
+      path: '/usr/bin/{{ item.app }}'
+      state: absent
+    loop:
+      - { app: gcloud }
+      - { app: nomos }
+      - { app: gsutil }
+      - { app: kustomize }
+      - { app: anthoscli }
+      - { app: kpt }
+      - { app: kubectl }
+      - { app: kubectl-oidc }
+    when: optional_tools is true
+    tags:
+    - initial-install
+    - tool-install
+
+  - name: Put the primary google sdk tools in /usr/bin
+    ansible.builtin.file:
+      src: '{{ tools_base_path }}/google-cloud-sdk/bin/{{ item.app }}'
+      dest: '/usr/bin/{{ item.app }}'
+      state: link
+    loop:
+      - { app: gcloud }
+      - { app: nomos }
+      - { app: gsutil }
+      - { app: kustomize }
+      - { app: anthoscli }
+      - { app: kpt }
+      - { app: kubectl }
+      - { app: kubectl-oidc }
+    when: optional_tools is true
+    tags:
+    - initial-install
+    - tool-install
+
+### Set up application default credentials
+  - name: Setting up Google App Creds for non-interactive shells
+    lineinfile:
+      path: /etc/environment
+      line: 'GOOGLE_APPLICATION_CREDENTIALS="{{ remote_keys_folder }}/node-gsa.json"'
+    tags:
+    - profile
+    - initial-install
+    - non-interactive-shell
+
+#### Setting up non-interactive PATH for gcloud
+  - name: Add gcloud to PATH on all shells (including non-interactive)
+    lineinfile:
+      path: /etc/environment
+      regexp: 'PATH="(\/usr\/local\/sbin:\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/sbin:\/bin:\/usr\/games:\/usr\/local\/games:\/snap\/bin)"$' #uugghhly...but works
+      line: 'PATH="{{ tools_base_path }}/google-cloud-sdk/bin:\1"' #prepend gcloud (snap auto installs gcloud on GCE instances)
+      backrefs: yes
+      state: present
+    tags:
+    - profile
+    - initial-install
+    - non-interactive-shell
+
+## Set up auto-complete
+  - name: Check for '/etc/profile.d/bash_completion.sh'
+    stat:
+      path: "/etc/profile.d/bash_completion.sh"
+    register: has_bash_completion
+
+  - name: Missing '/etc/profile.d/bash_completion.sh', touching to create
+    ansible.builtin.file:
+      path: /etc/profile.d/bash_completion.sh
+      state: touch
+    when: has_bash_completion.stat.exists ==  false
+
+  - name: Add gcloud BASH completion
+    lineinfile:
+      path: /etc/profile.d/bash_completion.sh
+      line: "if [ -f '{{ tools_base_path }}/google-cloud-sdk/completion.bash.inc' ]; then source '{{ tools_base_path }}/google-cloud-sdk/completion.bash.inc'; fi"
+      mode: '0755'
+    tags:
+    - profile
+    - initial-install
+    - non-interactive-shell
+
+  - name: Add node GSA activation script to /etc/profile.d
+    lineinfile:
+      path: /etc/profile.d/01-gcloud-auth-node-gsa.sh
+      line: "gcloud auth activate-service-account --key-file={{ remote_keys_folder }}/node-gsa.json --project {{ google_project_id }}"
+      mode: '0755'
+      state: present
+      create: yes
+    tags:
+    - profile
+    - initial-install
+    - non-interactive-shell
+    - gcloud-setup
+
+# TODO: Setup a check to see if gcloud is authenticated: gcloud auth list --format="value(account)" --filter="status=ACTIVE" and skip re-authenticating if authd
+# TODO: Make this a script rather than an in-line
+# TODO: This needs to be comprehensive with the next stanza, only one should exist and it should be a script only
+# TODO: Couple this with the "post-install" removal of the profile.d, instead, the default user's session completion should end the logged in state, no need to remove the 99-* profile.d script
+  - name: Add node GSA activation script to /etc/profile.d # NOTE: This will be removed in
+    lineinfile:
+      path: /etc/profile.d/99-gcloud-auth-provisioning-gsa.sh
+      line: "gcloud auth activate-service-account --key-file={{ remote_keys_folder }}/provisioning-gsa.json --project {{ google_project_id }}"
+      mode: '0755'
+      state: present
+      create: yes
+    tags:
+    - profile
+    - initial-install
+    - non-interactive-shell
+    - gcloud-setup
+
+### Switch current session to target-machine-gsa
+  - name: Switch to provisioning GSA for the provisioning session only
+    command:
+      cmd: "gcloud auth activate-service-account --key-file={{ remote_keys_folder }}/provisioning-gsa.json --project {{ google_project_id }}"
+    environment:
+      PATH: "{{ tools_base_path }}/google-cloud-sdk/bin:{{ ansible_env.PATH }}"
+    tags:
+      - initial-install
+
+  - name: Enable services
+    command:
+      cmd: gcloud services enable {{ gcp_services_required | join(' ') }} --project={{ google_project_id }}
+    run_once: true # only one in whole inventory to run this
+    when:
+    - gcp_services_required is defined
+    - (gcp_services_required|length>0)
+    - primary_cluster_machine is defined
+    - primary_cluster_machine == true
+    tags:
+    - initial-install
+    - terraform
+    - gcloud-mutate
+
+  - name: Set Default Region
+    command:
+      cmd: gcloud config set compute/region {{ google_region }} --project={{ google_project_id }}
+    environment:
+      PATH: "{{ tools_base_path }}/google-cloud-sdk/bin:{{ ansible_env.PATH }}"
+    tags:
+    - initial-install
+    - tool-install
+    - gcloud-command
+
+  - name: Set Default Zone
+    command:
+      cmd: gcloud config set compute/zone {{ google_zone }} --project={{ google_project_id }}
+    environment:
+      PATH: "{{ tools_base_path }}/google-cloud-sdk/bin:{{ ansible_env.PATH }}"
+    tags:
+    - tool-install
+    - initial-install
+    - gcloud-command
+
+  - name: Set HTTP Proxy for gcloud
+    shell: |
+      gcloud config set proxy/type http
+      gcloud config set proxy/address {{ proxy_http_addr }}
+      gcloud config set proxy/port {{ proxy_http_port }}
+    args:
+      executable: /bin/bash
+    environment:
+      PATH: "{{ tools_base_path }}/google-cloud-sdk/bin:{{ ansible_env.PATH }}"
+    when:
+    - proxy_has_http_proxy is true
+    tags:
+    - tool-install
+    - initial-install
+    - gcloud-command
+    - http-proxy
+    - gcloud-proxy
+
+  - name: Set CLOUDSDK user in global vars
+    lineinfile:
+      path: /etc/environment
+      line: 'CLOUDSDK_PROXY_USERNAME="{{ proxy_http_user }}"'
+    when:
+    - proxy_has_http_proxy is true
+    - proxy_http_user is defined and proxy_http_user | length > 0
+    tags:
+    - http-proxy
+    - gcloud-proxy
+
+  - name: Set CLOUDSDK pass in global vars
+    lineinfile:
+      path: /etc/environment
+      line: 'CLOUDSDK_PROXY_PASSWORD="{{ proxy_http_pass }}"'
+    when:
+    - proxy_has_http_proxy is true
+    - proxy_http_pass is defined and proxy_http_pass | length > 0
+    tags:
+    - http-proxy
+    - gcloud-proxy
+
+### IF upgrading BMCTL, remove existing
+  - name: Remove bmctl
+    ansible.builtin.file:
+      path: "/usr/local/bin/bmctl"
+      state: absent
+    when:
+      - force_tools_upgrade is defined
+      - force_tools_upgrade == True
+    tags:
+      - initial-install
+      - tool-install
+
+### Find versions with:  gsutil ls -al gs://anthos-baremetal-release/bmctl
+  - name: Install Anthos Bare Metal CLI
+    shell: |
+      gsutil cp gs://anthos-baremetal-release/bmctl/{{ bmctl_version }}/linux-amd64/bmctl {{ tools_base_path }}
+      chmod a+x {{ tools_base_path }}/bmctl
+      mv {{ tools_base_path }}/bmctl /usr/local/bin/bmctl
+    args:
+      creates: /usr/local/bin/bmctl
+      executable: /bin/bash
+    environment:
+      PATH: "{{ tools_base_path }}/google-cloud-sdk/bin:{{ ansible_env.PATH }}"
+    tags:
+    - initial-install
+    - tool-install
+
+### Find versions with:  gsutil ls -al gs://ncg-release/anthos-baremetal
+  - name: Install Network Connectivity Gateway CLI
+    shell: |
+      gsutil cp gs://ncg-release/anthos-baremetal/ncgctl-{{ ncgctl_version }}-linux-amd64.tar.gz {{ tools_base_path }}
+      tar -xvzf {{ tools_base_path }}/ncgctl-{{ ncgctl_version }}-linux-amd64.tar.gz -C {{ tools_base_path }}
+      chmod a+x {{ tools_base_path }}/ncgctl-{{ ncgctl_version }}/bin/ncgctl
+      rm -f {{ tools_base_path }}/ncgctl-{{ ncgctl_version }}-linux-amd64.tar.gz
+      exit $?
+    args:
+      executable: /bin/bash
+    tags:
+    - initial-install
+    - tool-install
+
+  - name: Adding k9s utility to machine (optional, but recommended)
+    ansible.builtin.unarchive:
+      src: https://github.com/derailed/k9s/releases/download/{{ k9s_version }}/k9s_Linux_x86_64.tar.gz
+      dest: /usr/local/bin
+      remote_src: yes
+    ignore_errors: true
+    when: optional_tools is true
+    tags:
+    - optional
+    - tool-install
+
+  - name: Add kubestr storage debugging utility
+    ansible.builtin.unarchive:
+      src: https://github.com/kastenhq/kubestr/releases/download/v{{ kubestr_version }}/kubestr_{{ kubestr_version }}_Linux_amd64.tar.gz
+      dest: /usr/local/bin
+      include: 'kubestr'
+      mode: "0755"
+      creates: "/usr/local/bin/kubestr"
+      remote_src: yes
+    ignore_errors: true
+    when: optional_tools is true
+    tags:
+    - optional
+    - tool-install
+    - kubestr
+
+### adding to allow RHEL to see bmctl in proper location as root
+  - name: reset ssh connection
+    meta: reset_connection
+    tags:
+      - optional
+      - tool-install
+
+  ### Install virtctl via bmctl (keeps this up-to-date without explicit downloading)
+  - name: Install virtctl
+    command:
+      cmd: "bmctl install virtctl"
+    args:
+      creates: /usr/bin/kubectl-virt
+      chdir: "{{ tools_base_path }}"
+    environment:
+      PATH: "/usr/local/bin:{{ ansible_env.PATH }}"
+    when: optional_tools is true
+    tags:
+    - optional
+    - tool-install

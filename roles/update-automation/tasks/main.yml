@@ -1,0 +1,57 @@
+###
+### Sets up the host systems to perform updates
+###
+### Based on configuration hosted on the machine, can be updated by Ansible Pull or a future agent
+###
+
+- name: Create folder for abm-install if not exist
+  file:
+    path: "{{ abm_install_folder }}"
+    state: directory
+    mode: '0755'
+
+- name: Setup default update configuration file
+  template:
+    src: "abm-update-config.j2.conf"
+    dest: "{{ abm_install_folder }}/abm-update-config.conf"
+    owner: root
+    group: root
+    mode: '0600'
+
+### unattended upgrades configuration & setup
+
+- name: setup Ubuntu unattended upgrades
+  include_tasks: ubuntu-update-automation.yml
+  when:
+  - target_os == "ubuntu"
+
+- name: setup RedHat unattended upgrades
+  include_tasks: redhat-update-automation.yml
+  when:
+  - target_os == "redhat"
+
+### gcloud cron updates
+
+- name: Script for gcloud cron update
+  template:
+    src: "gcloud-update-script.sh"
+    dest: "{{ abm_install_folder }}/gcloud-update-script.sh"
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Set up logrotate for gcloud updates
+  template:
+    src: gcloud-update-logrotate.j2
+    dest: /etc/logrotate.d/gcloud-update-log-rotate
+    owner: root
+    group: root
+    mode: 0644
+
+- name: Cron file for gcloud update
+  template:
+    src: "gcloud-update-cron.j2"
+    dest: "/etc/cron.d/gcloud-update-cron"
+    owner: root
+    group: root
+    mode: '0700'

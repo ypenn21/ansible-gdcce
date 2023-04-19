@@ -1,0 +1,435 @@
+---
+
+# Ansible Setttings (per each run)
+###
+###
+###
+
+# Ansible will use the key below
+ansible_ssh_private_key_file: "build-artifacts/consumer-edge-machine"
+ansible_ssh_common_args: "-F build-artifacts/ssh-config -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ControlMaster=auto -o ControlPersist=1200s -o BatchMode=yes"
+ansible_control_path_dir: "/tmp/ansible-cp"
+ansible_ssh_priv_key_secret: "ssh-priv-key-{{ cluster_name }}"
+ansible_async_dir: "/tmp/.ansible_async"
+ansible_ssh_transfer_method: scp # smart|sftp|scp|piped
+#######
+
+####
+#### Commonly changed variables
+####
+# Latest version can be found: gsutil ls -al gs://anthos-baremetal-release/bmctl
+# Version of Anthos Bare Metal to install
+abm_version: "1.14.2" # verify coupling of ABM to BMCTL versions
+# bmctl binary version
+#TODO: set this up to query for the version, then upgrade automatically if updated
+#NOTE: A copy of this variable is in Molecule test `for google_tools`
+bmctl_version: "{{ abm_version }}" # If changed, set the `force_tools_upgrade` to true so new version of BMCTL is downloaded
+
+# Latest version can be found:  gsutil ls -al gs://ncg-release/anthos-baremetal
+# Version of the ncgctl command line tool for installing the Network Connectivity Gateway
+ncgctl_version: "v1.12.0"
+
+# Base folder to install ABM into
+abm_install_folder: "/var/abm-install"
+
+# abm workspace folder derived from all.yaml defined install folder
+abm_workspace_folder: "{{ abm_install_folder }}/bmctl-workspace"
+
+# Location of all GSA keys
+remote_keys_folder: "{{ abm_install_folder }}/keys"
+
+# Force Upgrade of tools (typically used when updating the ABM version above)
+force_tools_upgrade: false
+
+###
+###
+### Node-to-node ABM user information
+###
+abm_install_user: "el-gato"
+ssh_key_name: "abm-key"
+ssh_user_home: "/home/{{ abm_install_user }}/.ssh"
+ssh_key_path: "{{ ssh_user_home }}/{{ ssh_key_name }}"
+ssh_key_path_pub: "{{ ssh_user_home }}/{{ ssh_key_name }}.pub"
+
+### Proxy
+###
+###  Define the HTTP and HTTPS proxies for the systems. Leave values empty if they are not to be set with the exception of port. IF there is a proxy, you must define the port and address
+###
+proxy_http_user: "{{ lookup('env', 'HTTP_PROXY_USER') | default('', True) }}"
+proxy_http_pass: "{{ lookup('env', 'HTTP_PROXY_PASS') | default('', True) }}"
+proxy_http_addr: "{{ lookup('env', 'HTTP_PROXY_ADDR') | default('', True) }}"
+proxy_http_port: "{{ lookup('env', 'HTTP_PROXY_PORT') | default('', True) }}" # Required IF address is defined
+proxy_http_proto: "{{ lookup('env', 'HTTP_PROXY_PROTOCOL') | default('', True) }}"
+
+proxy_https_user: "{{ lookup('env', 'HTTPS_PROXY_USER') | default('', True) }}"
+proxy_https_pass: "{{ lookup('env', 'HTTPS_PROXY_PASS') | default('', True) }}"
+proxy_https_addr: "{{ lookup('env', 'HTTPS_PROXY_ADDR') | default('', True) }}"
+proxy_https_port: "{{ lookup('env', 'HTTPS_PROXY_PORT') | default('', True) }}" # Required IF address is defined
+proxy_https_proto: "{{ lookup('env', 'HTTPS_PROXY_PROTOCOL') | default('', True) }}"
+
+# CALCULATED VARIABLE: Do not manually change -- Build the full http proxy address. This variable should be used for full URL where http proxy is needed
+proxy_http_full_addr: "{{ proxy_http_proto }}://{{ (proxy_http_user is defined and proxy_http_user | length > 0) | ternary( proxy_http_user + ':' + proxy_http_pass + '@', '' ) }}{{ proxy_http_addr }}:{{ proxy_http_port }}"
+# CALCULATED VARIABLE: Do not manually change -- Build the full https proxy address. This variable should be used for full URL where http proxy is needed
+proxy_https_full_addr: "{{ proxy_https_proto }}://{{ (proxy_https_user is defined and proxy_https_user | length > 0) | ternary( proxy_https_user + ':' + proxy_https_pass + '@', '' ) }}{{ proxy_https_addr }}:{{ proxy_https_port }}"
+# NO_PROXY list of IPs, CIDR, FQDN, wildcard TLD
+proxy_no_proxy_list: [] # Empty list by default (override in host_vars)
+
+# Calculated value if the http proxy has been set. This is used in "when" conditionals. The value is only true if there is the 'addr' filled out regardless of other varaiables
+proxy_has_http_proxy: "{{ proxy_http_addr | length > 0 }}"
+proxy_has_https_proxy: "{{ proxy_https_addr | length > 0 }}"
+
+# Optional OSS and breakglass tooling to be deployed on each of the nodes. These are considered optional.
+#   These tools are primarily used for debugging and/or ready to be used during breakglass
+#   scnearios. The several of these tools are OSS and not supported by Google support.
+#
+#   List of optional tooling:
+#     k9s
+#     kubestr
+#     kubectx
+#     kubens
+#     kustomize
+#     kpt
+#     nomos
+#     virtctl
+optional_tools: true # defaults to true
+
+###
+### Ansible Pull Configurations
+###
+
+# Remote playbook for Ansible Pull to use (if empty, no ansible-pull used for this type of execution)
+#     example:
+#     ansible_pull_authentication_string: "{{scm_token_user}}:{{scm_token_token}}@"
+#     ansible_pull_remote_execute_repo: "https://{{ ansible_pull_authentication_string | default('', true) }}gitlab.com/gcp-solutions-public/retail-edge/remote-command-repo.git"
+ansible_pull_remote_execute_repo: ""
+
+# Default for ansible pull drift assistance (defaults to empty or no run)
+ansible_pull_drift_repo: ""
+
+####
+#### Anthos Config Management
+####
+# gsutil ls -al gs://config-management-release/released/
+# Anthos Config Management version
+acm_version: "1.14.2"
+
+# Where to store ACM files during provisoning
+acm_config_files: "{{ abm_install_folder }}/acm-configs"
+vmruntime_config_path: "{{ abm_install_folder }}/vmruntime"
+# Home directory for external secrets download and operations (TODO: Duplciated in post-install)
+external_secrets_files: "{{ abm_install_folder }}/external-secrets"
+use_workload_identity_for_external_secrets: false
+
+###
+### SCM (Root Repo Configurations)
+###
+acm_root_repo: "{{ lookup('env', 'ROOT_REPO_URL') | default('https://gitlab.com/gcp-solutions-public/retail-edge/root-repo-public-template.git', True) }}"
+acm_repo_type: "{{ lookup('env', 'ROOT_REPO_TYPE') | default('token', True) }}"
+root_repository_git_auth_type: "{{ acm_repo_type }}"
+acm_root_repo_structure: "{{ lookup('env', 'ROOT_REPO_STRUCTURE') | default('hierarchy', True) }}"
+
+scm_token_user: "{{ lookup('env', 'SCM_TOKEN_USER') | default('', True) }}"
+scm_token_token: "{{ lookup('env', 'SCM_TOKEN_TOKEN') | default('', True) }}"
+acm_ssh_private_keyfile: "{{ lookup('env', 'SCM_SSH_PRIVATE_KEYFILE') | default('', True) }}"
+# From the above repo, what branch and what directory to use as bases
+root_repository_branch: "{{ lookup('env', 'ROOT_REPO_BRANCH') | default('main', True) }}"
+# Directory to use as base
+root_repository_policy_dir: "{{ lookup('env', 'ROOT_REPO_DIR') | default('/config', True) }}"
+root_repository_sync_time: 15 # ACM default is 15. NOTE: Do not include a suffix, seconds is assumed and type is INT
+
+# name of the first/primary root-sync object (only used in the root-sync.yaml method of RooSync (DEPRECATED removal ~Q1/2023))
+primary_root_sync_name: "primary-root-sync"
+
+###
+### Google Core Variables
+###
+google_project_id: "{{ lookup('env', 'PROJECT_ID') }}"
+google_secret_project_id: "{{ lookup('env', 'SECRET_PROJECT_ID') | default(google_project_id, True) }}"
+google_service_account_project_id: "{{ lookup('env', 'SA_PROJECT_ID') | default(google_project_id, True) }}"
+google_region: "{{ lookup('env', 'REGION') | default('us-central1', True) }}" # NOTE: A copy of this variable is in Molecule test `for google_tools`
+google_zone: "{{ lookup('env', 'ZONE') | default('us-central1-a', True) }}" # NOTE: A copy of this variable is in Molecule test `for google_tools`
+
+###
+### Use the "pre-cache" bundle instead of downloading binaries from outside (does not include containers)
+###     DEFAULT = false
+###
+must_use_precache: false
+
+###
+###  Anthos Network Connectivity Gateway & VPN Details
+###
+# Setup the HA VPN for the Network Connectivity Gateway (NCG)
+network_connectivity_gateway_install: false
+
+# Egress IP
+overlay_vpn_tunnel_self_public_ip: "" # `curl ifconfig.me`
+overlay_bgp_peer_asn: "" # e.g. 4200000000
+overlay_bgp_self_asn: "" # e.g. 4200000001
+
+overlay_vpn_tunnel_1_peer_local_tunnel_ip: "" # e.g. 169.254.156.45
+overlay_vpn_tunnel_1_self_local_tunnel_ip: "" # e.g. 169.254.156.46
+overlay_vpn_tunnel_1_peer_public_ip: ""
+
+# Network connectivity gateway does not support active/active tunnels on the
+# Anthos cluster side as of 2/12/2023. Leaving default as non-HA until
+# supported.
+#
+# overlay_vpn_tunnel_2_peer_local_tunnel_ip: ""
+# overlay_vpn_tunnel_2_self_local_tunnel_ip: ""
+# overlay_vpn_tunnel_2_peer_public_ip: ""
+
+network_connectivity_gateway_ha: false
+
+
+
+# OSS Multus
+enable_multus_network: false # Enable Multus (Cannot be true when enable_vmruntime is true) -- https://cloud.google.com/anthos/clusters/docs/bare-metal/latest/how-to/multi-nic
+
+###
+### VM Runtime (KubeVirt + A4VM)
+###
+# VM Runtime
+enable_vmruntime: true  # Enable VMRuntime & Networking (this cannot be true if multus network is true) -- https://cloud.google.com/anthos/clusters/docs/bare-metal/latest/vm-runtime/create-networks
+
+###
+### Global Snapshot & Update Variables
+###
+snapshot_gcs_bucket_base: "{{ lookup('env', 'SNAPSHOT_GCS') | default( [ google_project_id, '-', cluster_name, '-snapshot' ] | join, True) }}" # leave empty to generate local-only snapshots
+# snapshot_gcs_bucket_base: ""
+
+###
+### Storage Provider
+###
+### Storage providers are installed via Cluster Trait Repos. Configuration for CTR is done in this automation (where possible)
+###
+storage_provider: "robin" # Current Options: longhorn, none & Future Options: openebs, portworx. NOTE: storage_provider_repo_url must match with storage_provider_repo_url
+### Storage Provider Cluster Trait Repo (ex: https://gitlab.com/gcp-solutions-public/retail-edge/available-cluster-traits)
+storage_provider_repo_url: "{{ lookup('env', 'SDS_REPO_URL') | default('https://gitlab.com/gcp-solutions-public/retail-edge/available-cluster-traits/robin-io-anthos.git', True) }}"
+storage_provider_repo_type: "{{ lookup('env', 'SDS_REPO_STRUCTURE') | default('hierarchy', True) }}"
+storage_provider_auth_type: "{{ lookup('env', 'SDS_REPO_TYPE') | default('token', True) }}" # NOTE: Initial feature functionality can ONLY support token
+storage_provider_user_user: "{{ lookup('env', 'SDS_TOKEN_USER') | default(scm_token_user, True) }}"
+storage_provider_user_token: "{{ lookup('env', 'SDS_TOKEN_TOKEN') | default(scm_token_token, True) }}"
+storage_provider_auth_secret: "{{storage_provider}}-git-cred" # GCP Secret Manager secret will be created with this name using the name/token above
+
+# Storage provider backup bucket (where PVs are backed up to)
+storage_provider_gcs_bucket_name: "{{ google_project_id }}-{{ cluster_name }}-sds-backup"
+storage_provider_hmac_gcm_secret: "{{ google_project_id }}-{{ cluster_name }}-sds-hmac-secret"
+
+# Storage provider roots for disc storage
+storage_provider_roots: [ "/customer" ]
+
+### Multipath Disk Service - Can cause issues with SDS, very uncommon to need multipath unless using iSCSI. Defaults to false
+enable_multipath_service: false
+
+###
+### OIDC in cluster (setup OIDC before provisioning, set environment variables to the values)
+###
+enable_oidc: "{{ lookup('env', 'OIDC_ENABLED')|bool or false }}" # Off by default, change with ENV var, not with default value
+oidc_client_id: "{{ lookup('env', 'OIDC_CLIENT_ID') }}"
+oidc_client_secret: "{{ lookup('env', 'OIDC_CLIENT_SECRET') }}"
+oidc_user: "{{ lookup('env', 'OIDC_USER') }}"
+
+# Auditd Control
+enable_auditd: false
+
+###
+### Default Ansible configuration variables
+###
+# All ansible interactions are using this user during provisioning
+ansible_user: abm-admin
+# Path to the private key file used for SSH
+ansible_ssh_key_timeout: "4h"
+
+# Number of retry attempts on failed tasks using retry (1800 seconds = approx 30 minutes)
+default_retry_count: 180
+# Time to wait (seconds) between retries
+default_retry_delay: 10
+
+provisioning_gsa_key: "{{ lookup('env', 'PROVISIONING_GSA_FILE') }}"
+provisioning_gsa_key_secret: "provisioning-gsa-{{ cluster_name }}"
+node_gsa_key: "{{ lookup('env', 'NODE_GSA_FILE') }}"
+node_gsa_key_secret: "node-gsa-{{ cluster_name }}"
+tools_base_path: "{{ abm_install_folder }}/google-tools-install"
+
+## kubeconfig link directory and file (so all users can access kubeconfig and env KUBECONFIG set to this location/file)
+kubeconfig_shared_root: "{{ abm_install_folder }}/kubeconfig"
+kubeconfig_shared_location: "{{ kubeconfig_shared_root }}/kubeconfig"
+
+#NOTE: A copy of this variable is in Molecule test `for google_tools`
+gcp_services_required:
+  - anthos.googleapis.com
+  - anthosaudit.googleapis.com
+  - anthosgke.googleapis.com
+  - cloudresourcemanager.googleapis.com
+  - connectgateway.googleapis.com
+  - container.googleapis.com
+  - gkeconnect.googleapis.com
+  - gkehub.googleapis.com
+  - iam.googleapis.com
+  - iamcredentials.googleapis.com
+  - logging.googleapis.com
+  - monitoring.googleapis.com
+  - opsconfigmonitoring.googleapis.com
+  - secretmanager.googleapis.com
+  - serviceusage.googleapis.com
+  - stackdriver.googleapis.com
+  - storage.googleapis.com
+
+# GCP Secret name for backups of volumes and send to cloud storage bucket
+volume_backup_secret_name: gcp-cloud-storage-backup-secret
+
+# Setup VLAN on Host # TODO: Add the ability to create multiple VLAN interfaces dynamically
+setup_vlan: false
+vlan_interfaces: []
+
+# Observability package
+install_observability: false
+
+# All of the Service Accounts used in this solution
+# NOTE: IDs are used in cluster-config.yaml.j2 for Ansible to identify the specific service accounts.
+#       Do not change the ID. The name is independent of the ID or the filename.
+service_accounts: [
+  {
+    name: "abm-gcr-{{ cluster_name }}",
+    id: "abm-gcr-agent",
+    keyfile: abm-gcr-agent-creds.json,
+    enabled: true,
+    description: "ABM GCR Agent Account. This SA is used in gcrKeyPath in the {{ cluster_name }}.yaml located in /var/abm-install/bmctl-workspace/{{ cluster_name }}. This is used to download gcr images on the cluster ",
+    roles: [
+      "roles/storage.objectViewer"
+    ]
+  },
+  {
+    name: "abm-gke-con-{{ cluster_name }}",
+    id: "abm-gke-connect-agent",
+    keyfile: abm-gke-connect-agent-creds.json,
+    enabled: true,
+    description: "ABM GKE Connect Agent Service Account. This SA is used in gkeConnectAgentServiceAccountKeyPath in the {{ cluster_name }}.yaml located in /var/abm-install/bmctl-workspace/{{ cluster_name }}. ",
+    roles: [
+      "roles/gkehub.connect"
+    ]
+  },
+  {
+    name: "abm-gke-reg-{{ cluster_name }}",
+    id: "abm-gke-register-agent",
+    keyfile: abm-gke-register-agent-creds.json,
+    enabled: true,
+    description: "ABM GKE Connect Register Account. This SA is used in gkeConnectRegisterServiceAccountKeyPath in the {{ cluster_name }}.yaml located in /var/abm-install/bmctl-workspace/{{ cluster_name }}",
+    roles: [
+      "roles/gkehub.admin"
+    ]
+  },
+  {
+    name: "abm-ops-{{ cluster_name }}",
+    id: "abm-ops-agent",
+    keyfile: abm-cloud-operations-agent-creds.json,
+    enabled: true,
+    description: "ABM Cloud Operations Service Account. This SA is used in cloudOperationsServiceAccountKeyPath in the {{ cluster_name }}.yaml located in /var/abm-install/bmctl-workspace/{{ cluster_name }}. The cloud ops agents uses this SA to send telementry and logs to Cloud Ops.",
+    roles: [
+      "roles/logging.logWriter",
+      "roles/monitoring.metricWriter",
+      "roles/stackdriver.resourceMetadata.writer",
+      "roles/monitoring.dashboardEditor",
+      "roles/opsconfigmonitoring.resourceMetadata.writer"
+    ]
+  },
+  # {
+  #   name: "acm-mon-{{ cluster_name }}",
+  #   id: "acm-monitoring-agent",
+  #   keyfile: acm-monitoring-agent.json,
+  #   enabled: false,
+  #   description: "ACM Monitoring Account. This service account is only used by the playbook task 'Setup Workload Identity for ACM Monitoring'. This SA will use workload identity to monitor and update cloud ops with ACM telemetry ",
+  #   roles: [
+  #     "roles/monitoring.metricWriter"
+  #   ]
+  # },
+   {
+    name: "es-k8s-{{ cluster_name }}",
+    id: "external-secrets-k8s",
+    keyfile: external-secrets-k8s-creds.json,
+    enabled: true,
+    description: "External Secrets Service Account. This service account is used by external secret operators that connects to secret manager and syncs the secret values into k8s secret objects. This is referenced in jinja template external-secrets-store.yaml.j2 and task 'Create secret for External Secrets'",
+    roles: [
+      "roles/secretmanager.secretAccessor",
+      "roles/secretmanager.viewer"
+    ]
+  },
+  #####  SDS agent for backups (storage provider used is identified in the description)
+  {
+    name: "sds-backup-{{ cluster_name }}",
+    id: "sds-backup-agent",
+    keyfile: sds-backup-agent-creds.json,
+    enabled: "{{ lookup('env', 'SDS_BACKUP_ENABLED')| default('true', True)| string }}",
+    description: "SDS agent taking volume backups on cloud storage ({{ storage_provider }}). This SA is used by robin.io or longhorn to take snapshots and backups to GCS. For longhorn this service account is used to create a HMAC key tied to a GCS bucket https://cloud.google.com/storage/docs/authentication/hmackeys. The HMAC key is stored in a yaml file and uploaded to secret manager . In Anible playbook this is done n the file csi-longhorn.yaml . The SM secret name that has this HMAC key is {{ storage_provider_hmac_gcm_secret }} . Finally using ACM an external secret object (longhorn-backup-external-secret.yaml) downloads the HMAC key secret and creates a k8s secret gcp-cloud-storage-backup-secret. This k8s secret is used by longhorn configmap whic is provisioned in this ansible playbook with the jinja file longhorn-default-setting.yml.j2. For robin #TODO add details .....",
+    roles: [
+      "roles/storage.admin"
+    ]
+  },
+  {
+    name: "gtw-con-{{ cluster_name }}",
+    id: "gateway-connect-agent",
+    keyfile: gateway-connect-agent-creds.json,
+    enabled: "{{ lookup('env', 'CONNECT_GATEWAY_ENABLED')| default('false', True)| string }}",
+    description: "Agent used for Connect Gateway. This service account is not used in this playbook.  This is intended to be used for running kubectl commands using Connect Gateway. https://cloud.google.com/anthos/multicluster-management/gateway/using . This SA is only used in this script gateway-connect.sh. The playbook and the cluster nodes do not use this service account. This SA is for admins running kubectl commands directly on the cluster. This service account should not have any keys and should not go in secret manager . The admins who wants to use connect gateway should simply impersonate their principal to use this service account .",
+    roles: [
+      "roles/gkehub.gatewayAdmin",
+      "roles/gkehub.viewer"
+    ]
+  },
+  {
+    name: "cdi-import-{{ cluster_name }}",
+    id: "cdi-import-agent",
+    keyfile: cdi-import-agent-creds.json,
+    enabled: true,
+    description: "Agent used for CDI image access. This service account is not used inside this playbook. The key for this SA is uploaded to a secret manager secret . An external secret artifact yaml is deployed using ACM (Namespace repo) that downloads the key from secret manager and creates a k8s secret. Eventually that key is used when describing the VM artifact yaml as show here https://cloud.google.com/anthos/clusters/docs/bare-metal/latest/vm-runtime/create-storage-credentials#use_a_secret_to_import_an_image ",
+    roles: [
+      "roles/storage.objectViewer"
+    ]
+  }
+  # ,
+  # {
+  #   name: "storage-{{ cluster_name }}",
+  #   id: "storage-agent",
+  #   keyfile: storage-agent-svc-account-creds.json,
+  #   enabled: flase,
+  #   description: "Agent used for Snapshot Cloud Storage. This service account is intended to be used for storing cluster snapshots on GCS bucket. The process that takes the cluster snapshotusing bmctl is using GSA service account. This SA is only for GCS bucket access. However the playbook is not ussing this serviec account to copy data back to GCS bucket . The playbook uses GSA to take snapshot and copy data to GCS bucket ",
+  #   roles: [
+  #     "roles/storage.admin"
+  #   ]
+  # }
+
+]
+
+longest_gca_name: 12 # count the length of the names above without the {{cluster_name}}
+
+# git_creds_gcp_secret_name is the secret created to hold the Git PAT info corresponding to that Namespace Repo
+# franchise_name, franchise_number aren't used
+# Stores: not used now, secrets are created for all franchises in GCP Secrets Manager, ExternalSecrets are controlled in the root-repo for each franchise
+#      Associations of franchise/store -> cluster is done at the inventory level on "acm_cluster_name" (an unique name across the cluster space)
+
+## All this does is create the git-creds for the different ExternalSecrets used in Namespace Repos
+franchises: [
+  {
+    franchise_number: "123", # DEPRECATED
+    git_creds_gcp_secret_name: "global-lab-git-creds", # Secret to access the namespace repo containing the franchise's information
+    franchise_name: "Global", # DEPRECATED
+    stores: [
+      "edge-2" # store-usa-123-1
+    ]
+  },
+  {
+    franchise_name: "Chicago",
+    franchise_number: "234",
+    git_creds_gcp_secret_name: "northam-lab-git-creds",
+    stores: [
+      "edge-1" # store-usa-234-3
+    ]
+  }
+]
+
+
+
+## Setting up Redhat or Ubuntu #NOTE: This is not a comprehesive solution that can/may provide other OSes in the future (ternary is not the right choice when 3 options)
+is_redhat: "{{ (ansible_distribution == 'RedHat') and (ansible_distribution_major_version == '8' or ansible_distribution_major_version == '9') }}"
+is_ubuntu: "{{ (ansible_distribution == 'Ubuntu') and (ansible_distribution_version == '18.04' or ansible_distribution_version == '20.04') }}"
+target_os: "{{ (is_ubuntu == true) | ternary('ubuntu', 'redhat') }}"

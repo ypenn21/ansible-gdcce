@@ -1,0 +1,104 @@
+target/
+pkg/
+tmp/
+
+.gitcookies
+.fleet/
+.screenrc
+
+# Newrelic agent log
+newrelic_agent.log
+
+# pre-cached bundle, do not commit if found
+bundle.zip
+
+# Folder to hold build-artifacts needed for Docker install (maybe all)
+# keep the .gitkeep file, but ignore everything else
+build-artifacts/*
+!build-artifacts/README.md
+!build-artifacts/ssh-config
+
+# local Inventory files are not stored
+inventory.yml
+inventory.yaml
+# GCP inventory files generated
+gcp.yaml
+gcp.yml
+
+inventory/*.yaml
+inventory/host_vars/*.yaml
+# Leave 2 examples of Cloud and Physical configurations
+!inventory/host_vars/edge-1.yaml
+!inventory/host_vars/edge-2.yaml
+!inventory/host_vars/edge-3.yaml
+!inventory/host_vars/cnuc-1.yaml
+!inventory/host_vars/cnuc-2.yaml
+!inventory/host_vars/cnuc-3.yaml
+
+# never check in any public keys
+*.pub
+
+# Downloaded git repo
+serving/
+# Downloaded model
+models/**/
+
+# Debugging & Testing Ansible
+build.yml
+build.yaml
+roles/test-*/
+
+# Molecule
+.cache/
+
+# Generated configuration file
+k8s/overlays/**/configuration/*-hydrated.conf
+k8s/overlays/**/configuration/secrets/*.json
+
+### VS Code ###
+.vscode/
+
+### IntelliJ ###
+.idea/
+
+## test files
+scripts/cloud/test.sh
+
+### Python
+.python-version
+.pytest_cache
+__pycache__
+*.data
+
+## Mac
+.DS_Store
+
+# Terraform Compiled files
+*.tfstate
+*.tfstate.backup
+service-account-key.json
+
+# Module directory
+.terraform/
+terraform.tfvars
+tfplan
+
+*.crt
+*.key
+*.srl
+*.csr
+
+# direnv
+.envrc
+
+# Code Coverage
+coverage.out
+coverage.html
+test-report.xml
+coverage-report.xml
+
+# Ignore key files
+provisioning-gsa.json
+
+# ansible temp files
+ansible*temp

@@ -1,0 +1,7 @@
+# Variables associated with the cloud installation inventory
+
+# Automation setting for "is cloud"
+is_cloud_resource: true
+
+# Use QEMU emulation on devices belonging to the cloud
+kubevirt_use_emulation: false

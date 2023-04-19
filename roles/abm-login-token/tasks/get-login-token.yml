@@ -1,0 +1,17 @@
+### Get Token for Login (this might change with OIDC)
+
+- name: "Get login token for console"
+  shell: |
+    set -o pipefail
+    export KSA_TOKEN=$(kubectl get secret console-cluster-reader-ksa-secret -o jsonpath='{$.data.token}' | base64 --decode)
+    echo $KSA_TOKEN
+  register: token
+  args:
+    executable: /bin/bash
+  changed_when: false
+  environment:
+    KUBECONFIG: "{{ kubeconfig_shared_location }}"
+
+- name: Display login token
+  debug:
+    msg: "{{ token.stdout }}"

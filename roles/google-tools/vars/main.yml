@@ -1,0 +1,23 @@
+---
+# vars file for google-tools
+
+# Initial project ID to setup gcloud with
+google_project_id: "{{ lookup('env', 'PROJECT_ID') }}"
+
+# Base to hold tools
+tools_base_path: "{{ abm_install_folder }}/tools"
+
+# gcloud version to download (gcloud version) -- roughly kept up-to-date, the system will update when installed, keeping up-to-date just makes the install a little faster
+gcloud_version: "408.0.0"
+
+# Local GSA Key (needs to be provided via command line vars)
+provisioning_gsa_key: "{{ lookup('env', 'PROVISIONING_GSA_FILE') }}"
+node_gsa_key: "{{ lookup('env', 'NODE_GSA_FILE') }}"
+
+kubectx_version: "0.9.4"
+
+# K9s binary version (https://github.com/derailed/k9s/releases)
+k9s_version: "v0.26.7"
+
+# Kubestr Version (https://github.com/kastenhq/kubestr/releases/)
+kubestr_version: "0.4.36"

@@ -1,0 +1,59 @@
+# These are post-installation steps that address defects/bugs or are needed after the system has been fully setup
+
+- name: "Update metrics-server resources (b/267792905)"
+  import_tasks: update-resoruces-metrics-server.yaml
+  when:
+  - abm_version is version('1.14.2', '<')
+  tags:
+  - abm-post-install
+  - bugfix-267792905
+  - metrics-server-resources
+
+### Add Kube PS1
+- name: "Add Kube PS1 to all known users"
+  import_tasks: add-kube-ps1.yml
+  tags:
+  - abm-post-install
+  - kube-ps1
+
+### Setup CDI cpumanager flag for nodes
+- name: "Add CDI required cpumanager label for nodes"
+  import_tasks: create-cdi-node-label.yaml
+  tags:
+  - abm-post-install
+  - cdi-install
+  - cdi-node-hack
+
+### Install Auditd
+- name: "Setup Auditd service"
+  import_tasks: setup-auditd.yml
+  tags:
+  - abm-post-install
+  - observability-setup
+
+ ### Install Obeservability agents
+- name: "Setup Obeservability Agents on Physical"
+  import_tasks: setup-google-observability.yml
+  when: install_observability == true and (is_cloud_resource is undefined or is_cloud_resource == false)
+  tags:
+  - abm-post-install
+  - observability-setup
+
+- name: Remove provisioning GSA profile
+  file:
+    path: /etc/profile.d/99-gcloud-auth-provisioning-gsa.sh
+    state: absent
+  tags:
+  - profile
+  - initial-install
+  - non-interactive-shell
+  - gcloud-setup
+  - gsa-removal
+
+# Remove the provisioning GSA after installation is complete
+- name: Remove the provisioning GSA
+  ansible.builtin.file:
+    path: '{{ remote_keys_folder }}/provisioning-gsa.json'
+    state: absent
+  tags:
+  - gsa-removal

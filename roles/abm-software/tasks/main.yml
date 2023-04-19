@@ -1,0 +1,194 @@
+- name: Post-Install--Fail if number of available hosts != in-play count
+  fail:
+    msg: "Failure caused by expected {{ ansible_play_hosts_all | length }} hosts but have {{ ansible_play_hosts | length }}. Check failures above to see what issue happened."
+  when: (ansible_play_hosts_all | length) != (ansible_play_hosts | length)
+  tags:
+  - verify
+
+#
+# Install ACM
+#
+- name: Fail if local SCM_TOKEN_USER ENV is not defined
+  assert:
+    that:
+    - scm_token_user != ""
+    fail_msg: "The local environment variable 'SCM_TOKEN_USER' needs to be defined for the target Google Project ID"
+  when:
+  - "primary_cluster_machine is defined"
+  - "primary_cluster_machine == true"
+  - "root_repository_git_auth_type == 'token'"
+  tags:
+  - verify
+
+- name: Fail if local SCM_TOKEN_TOKEN ENV is not defined
+  assert:
+    that:
+    - scm_token_token != ""
+    fail_msg: "The local environment variable 'SCM_TOKEN_TOKEN' needs to be defined for the target Google Project ID"
+  when:
+  - "primary_cluster_machine is defined"
+  - "primary_cluster_machine == true"
+  - "root_repository_git_auth_type == 'token'"
+  tags:
+  - verify
+
+- name: Create cluster snapshot
+  import_tasks: create-snapshot.yaml
+  when:
+  - (primary_cluster_machine is defined)
+  - (primary_cluster_machine == true)
+  tags:
+  - cluster-snapshot
+
+- name: Remove taint from master node
+  command:
+    cmd: kubectl taint nodes {{ cluster_name }} node-role.kubernetes.io/master:NoSchedule-
+  when: "(primary_cluster_machine is defined) and (primary_cluster_machine == true)"
+  environment:
+    KUBECONFIG: "{{ kubeconfig_shared_location }}"
+  ignore_errors: yes
+  tags:
+  - abm-software
+  - abm-config
+
+- name: Remove taint from master node
+  command:
+    cmd: kubectl taint nodes {{ cluster_name }} node-role.kubernetes.io/master:PreferNoSchedule-
+  when: "(primary_cluster_machine is defined) and (primary_cluster_machine == true)"
+  environment:
+    KUBECONFIG: "{{ kubeconfig_shared_location }}"
+  ignore_errors: yes
+  tags:
+  - abm-software
+  - abm-config
+
+- name: Folder for VMRUntime configuration
+  file:
+    path: '{{ vmruntime_config_path }}'
+    state: directory
+    mode: '0755'
+  when:
+  - (primary_cluster_machine is defined)
+  - (primary_cluster_machine == true)
+  - (enable_vmruntime == true)
+  tags:
+  - abm-software
+  - vmruntime
+
+- name: Copy VMRuntime for install
+  template:
+    src: vmruntime-config.yaml.j2
+    dest: "{{ vmruntime_config_path }}/vmruntime.yaml"
+  when:
+  - (primary_cluster_machine is defined)
+  - (primary_cluster_machine == true)
+  - (enable_vmruntime == true)
+  tags:
+  - abm-software
+  - vmruntime
+
+- name: "Install VMRuntime"
+  shell: |
+      kubectl apply -f {{ vmruntime_config_path }}/vmruntime.yaml
+      # Allow for the API to register the API
+      sleep 5s
+  args:
+    executable: /bin/bash
+  environment:
+    KUBECONFIG: "{{ kubeconfig_shared_location }}"
+  when:
+  - (primary_cluster_machine is defined)
+  - (primary_cluster_machine == true)
+  - (enable_vmruntime == true)
+  retries: "{{ default_retry_count }}"
+  delay: "{{ default_retry_delay }}"
+  register: result
+  until: result.rc == 0
+  tags:
+  - abm-software
+  - vmruntime
+
+- name: Folder for ACM configurations
+  file:
+    path: '{{ acm_config_files }}'
+    state: directory
+    mode: '0755'
+  when: "(primary_cluster_machine is defined) and (primary_cluster_machine == true)"
+  tags:
+  - abm-software
+  - abm-config
+
+### Anthos Config Management
+- name: "Install Anthos Config Management (ACM)"
+  import_tasks: acm-install.yaml
+  tags:
+  - acm-config-management-install
+  - acm-config-management
+
+### Configure External Secrets
+- name: Configure External Secrets
+  import_tasks: external-secrets.yaml
+  vars:
+    kubeconfig: "{{ kubeconfig_shared_location }}"
+  tags:
+  - external-secrets-install
+  - abm-software
+
+###
+### Setting up SDS common settings (git-creds, GSM Secret), if SDS is not none
+###
+- name: Setup common SDS components
+  import_tasks: csi-common.yaml
+  vars:
+    kubeconfig: "{{ kubeconfig_shared_location }}"
+  when:
+  - storage_provider != "none"
+  tags:
+  - sds-common
+  - storage-setup
+
+#  Setup/Configure SDS: Longhorn
+- name: SDS Setup Longhorn
+  import_tasks: csi-longhorn.yaml
+  vars:
+    kubeconfig: "{{ kubeconfig_shared_location }}"
+  when:
+  - storage_provider == "longhorn"
+  tags:
+  - longhorn
+  - storage-setup
+
+#  Setup/Configure SDS: Robin
+- name: SDS Setup Robin
+  import_tasks: csi-robin.yaml
+  vars:
+    kubeconfig: "{{ kubeconfig_shared_location }}"
+  when:
+  - storage_provider == "robin"
+  tags:
+  - robin
+  - storage-setup
+
+###
+### Anthos Network Connectivity Gateway
+###
+- name: "Install Anthos Network Connectivity Gateway"
+  import_tasks: network-connectivity-gateway.yaml
+  when: network_connectivity_gateway_install == true
+  tags:
+  - ncg-install
+
+- name: "Add CPU Monitor KubeVirt service files"
+  import_tasks: cpumonitor-service.yaml
+  tags:
+  - cpu-monitor
+  - cdi
+
+- name: Setup OIDC in cluster
+  import_tasks: setup-oidc.yaml
+  when:
+  - enable_oidc == true
+  tags:
+  - abm-software
+  - oidc
+  - post-acm

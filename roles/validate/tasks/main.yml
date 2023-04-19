@@ -1,0 +1,146 @@
+
+- name: Verify IP address resolves
+  debug:
+    msg: "{{ cluster_name }} is {{ node_ip }}"
+  tags:
+  - verify
+
+- name: Verify there is a ROOT_REPO_URL variable
+  debug:
+    var: acm_root_repo
+  tags:
+  - verify
+
+- name: Fail if local PROJECT_ID ENV is not defined
+  assert:
+    that:
+      - google_project_id != ""
+    fail_msg: "The local environment variable 'PROJECT_ID' needs to be defined for the target Google Project ID"
+  tags:
+  - verify
+
+- name: Fail if local REGION ENV is not defined
+  assert:
+    that:
+      - google_region != ""
+    fail_msg: "The local environment variable 'REGION' needs to be defined for the target Google Project default region"
+  tags:
+  - verify
+
+- name: Fail if local ZONE ENV is not defined
+  assert:
+    that:
+      - google_zone != ""
+    fail_msg: "The local environment variable 'ZONE' needs to be defined for the target Google Project default zone"
+  tags:
+  - verify
+
+- name: Print Region and Zone
+  debug:
+    msg: "Region: {{google_region}} Zone: {{google_zone}}"
+  tags:
+  - verify
+  - locality
+
+- name: Fail if local PROVISIONING_GSA_FILE ENV is not defined
+  assert:
+    that:
+      - provisioning_gsa_key != ""
+    fail_msg: "The local environment variable 'PROVISIONING_GSA_FILE' needs to be set to the local filesystem GSA JSON key"
+  tags:
+  - verify
+
+- name: Fail if local NODE_GSA_FILE ENV is not defined
+  assert:
+    that:
+      - node_gsa_key != ""
+    fail_msg: "The local environment variable 'NODE_GSA_FILE' needs to be set to the node GSA JSON key"
+  tags:
+  - verify
+
+- name: "Verify Build-in GSA and Project concatenation are not over 30 characters (GCP limit)"
+  assert:
+    that:
+    - "{{ google_project_id | length < longest_gca_name }}" # 17 is 30-<longest GCP GSA name prefix>
+    fail_msg: "The GCP Project name length may be too long and could cause built-in GSAs to fail for length"
+  when:
+  - "primary_cluster_machine is defined"
+  - "primary_cluster_machine == true"
+  ignore_errors: True
+  tags:
+  - verify
+
+- name: Fail if local SCM_TOKEN_USER ENV is not defined
+  assert:
+    that:
+      - scm_token_user != ""
+    fail_msg: "The local environment variable 'SCM_TOKEN_USER' needs to be set to the SCM user name"
+  when:
+  - "primary_cluster_machine is defined"
+  - "primary_cluster_machine == true"
+  - "root_repository_git_auth_type == 'token'"
+  tags:
+  - verify
+
+- name: Fail if local SCM_TOKEN_TOKEN ENV is not defined
+  assert:
+    that:
+      - scm_token_token != ""
+    fail_msg: "The local environment variable 'SCM_TOKEN_TOKEN' needs to be set to the secret value for the SCM PAT"
+  when:
+  - "primary_cluster_machine is defined"
+  - "primary_cluster_machine == true"
+  - "root_repository_git_auth_type == 'token'"
+  tags:
+  - verify
+
+- name: Ensure at least 120GB on primary disk
+  shell: |
+    export PRIMARY_DISK=$(df -BG / | awk '{if (NR!=1) print $2}' | tr -d 'G')
+    if [ "$PRIMARY_DISK" -lt 120 ]; then
+      echo "ERROR: $PRIMARY_DISK is less than required 120GB"
+      exit 1
+    fi
+  failed_when: disk_check.rc > 0
+  changed_when: disk_check.rc != 0
+  register: disk_check
+  tags:
+  - verify
+
+- name: deubg
+  debug:
+    msg: "VM: {{ enable_vmruntime }} and Multus {{ enable_multus_network }}"
+
+- name: VMRuntime vs Multus
+  fail:
+    msg: "VMRuntime and Multus cannot both be true"
+  when:
+    - (enable_vmruntime == true and enable_multus_network == true)
+
+- name: show oidc status
+  debug:
+    var: enable_oidc
+  tags:
+  - oidc
+
+- name: Validate OIDC varaibles are set if OIDC is enabled
+  assert:
+    that:
+    - oidc_client_id != ""
+    - oidc_client_secret != ""
+    - oidc_user != ""
+    fail_msg: "OIDC is enabled, but the local environment variables are not set. Please configure OIDC and ENV vars before provisioning or disable 'enable_oidc' variable in all.yaml settings"
+  when:
+  - enable_oidc == true
+  - primary_cluster_machine is defined
+  - primary_cluster_machine == true
+  tags:
+  - verify
+  - oidc
+
+- name: Fail playbook if any failures
+  fail:
+    msg: "Failure caused by expected {{ ansible_play_hosts_all | length }} hosts but have {{ ansible_play_hosts | length }}. Check failures above to see what issue happened."
+  when: (ansible_play_hosts_all | length) != (ansible_play_hosts | length)
+  tags:
+  - verify

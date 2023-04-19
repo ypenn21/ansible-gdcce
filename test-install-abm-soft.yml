@@ -1,0 +1,22 @@
+---
+- hosts: all
+  become: true
+  become_user: root
+  gather_facts: false
+  pre_tasks:
+    - name: Decrypt SSH key
+      include_role:
+        name: decrypt-ssh-key
+    - name: Gathering Facts
+      setup: {}
+      tags:
+        - always
+    - name: Populate service facts
+      service_facts:
+      tags:
+        - always
+  roles:
+    - abm-software
+  vars: []
+  tags:
+    - hardware
